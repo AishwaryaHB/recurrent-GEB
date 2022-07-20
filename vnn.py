@@ -67,7 +67,7 @@ class Linear(nn.Module):
             self.weight.clamp_(min=0)
 
 class Recurrent(nn.Module):
-    def __init__(self, category_dim, input_size, rnn_dim, first_layer=False, last_layer=False, mono=False):
+    def __init__(self, category_dim, input_size, rnn_dim, first_layer=False, first_rec_layer=True, last_layer=False, mono=False):
         super().__init__()
         self.category_dim = category_dim
         self.input_size = input_size
@@ -75,6 +75,7 @@ class Recurrent(nn.Module):
         self.first_layer = first_layer
         self.last_layer = last_layer
         self.mono = mono
+        self.first_rec_layer = first_rec_layer
 
         self.weight_hh = nn.Parameter(torch.zeros(rnn_dim, rnn_dim), requires_grad=False)
         self.bias_hh = nn.Parameter(torch.zeros(rnn_dim), requires_grad=False)
@@ -99,29 +100,88 @@ class Recurrent(nn.Module):
 
     def forward(self, input):
 
-        ## init. output matrix
-        output = torch.zeros((self.category_dim,))
+        if self.first_rec_layer:
 
-        self.input = input.detach()
-        
-        ## project onto latent dimensional space
-        proj = torch.matmul(self.input, self.weight_ih.T) + self.bias_ih ## pass input through linear tx
+            self.input = input.detach()
+            print('Input shape',self.input.shape)
 
-        ## Loop with recurrence
-        for ii in range(category_dim):
-            
-            inter = torch.matmul(proj, self.weight_hh.T) + self.bias_hh ## recurrence
+            ## init. output matrix
+            if len(self.input.shape)==3:
+                batch, dim1, dim2  = self.input.shape
+            elif len(self.input.shape)==2:
+                batch, dim1 = self.input.shape
 
-            if last_layer and (ii == self.category_dim-1):
-                output[ii] = (torch.sigmoid(inter)) ## Sigmoid instead of tRelu non-linearity at the output step
+            output = torch.zeros((batch,self.category_dim,self.rnn_dim))
 
-            else:
-                ## threshold inits
-                to_thresh = (inter.detach() * self.t[None]).sum(dim=1)
-                mask = (to_thresh >= 0).float()*1.
-                self.mask = mask
-                output[ii] = inter * mask[:, None]
-                proj = output[ii]
+            ## project onto latent dimensional space
+            proj = torch.matmul(self.input, self.weight_ih) + self.bias_ih ## pass input through linear tx
+            print('Projected shape',proj.shape)
+
+            ## Loop with recurrence
+            for ii in range(self.category_dim):
+                
+                inter = torch.matmul(proj, self.weight_hh) + self.bias_hh ## recurrence
+                print('Inter shape', inter.shape)
+                print('Inter done')
+
+                if self.last_layer: #and (ii == self.category_dim-1)
+                    output[:,ii] = (torch.sigmoid(inter)) ## Sigmoid instead of tRelu non-linearity at the output step
+                    print('Sigmoid works')
+
+                else:
+                    ## threshold inits
+                    to_thresh = (inter.detach() * self.t[None]).sum(dim=1)
+                    mask = (to_thresh >= 0).float()*1.
+                    self.mask = mask
+
+                    print('Mask shape', mask.shape)
+                    print('Op shape', output[ii].shape)
+                    
+                    output[:,ii] = inter * torch.ravel(mask)
+                    print('Timestep op calculated',ii)
+                    proj = output[:,ii]
+                    print('=============================')
+            print('Out of for loop')
+
+        else:
+
+            self.input = input.detach()
+            print('Input shape',self.input.shape)
+
+            ## init. output matrix
+            batch, nRolls, dim1 = self.input.shape
+
+            output = torch.zeros((batch,self.category_dim,self.rnn_dim))
+
+            ## project onto latent dimensional space
+            proj = torch.matmul(self.input, self.weight_ih) + self.bias_ih ## pass input through linear tx
+            print('Projected shape',proj.shape)
+
+            ## Loop with recurrence
+            for ii in range(self.category_dim):
+                
+                inter = torch.matmul(proj[:,ii], self.weight_hh) + self.bias_hh ## recurrence
+                print('Inter shape', inter.shape)
+                print('Inter done')
+
+                if self.last_layer: #and (ii == self.category_dim-1)
+                    output[:,ii] = (torch.sigmoid(inter)) ## Sigmoid instead of tRelu non-linearity at the output step
+                    print('Sigmoid works')
+
+                else:
+                    ## threshold inits
+                    to_thresh = (inter.detach() * self.t[None]).sum(dim=1)
+                    mask = (to_thresh >= 0).float()*1.
+                    self.mask = mask
+
+                    print('Mask shape', mask.shape)
+                    print('Op shape', output[ii].shape)
+                    
+                    output[:,ii] = inter * torch.ravel(mask)
+                    print('Timestep op calculated',ii)
+                    proj = output[:,ii]
+                    print('=============================')
+            print('Out of for loop')
             
         return output
 

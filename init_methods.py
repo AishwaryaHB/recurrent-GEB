@@ -21,8 +21,9 @@ def init_linear_mono(weight, first_layer):
     out_features, in_features = weight.shape
     
     if ((out_features % 2) != 0 and out_features != 1) or ((in_features % 2) != 0 and in_features != 1):
-        raise ValueError("out_features and in_features must both be even OR 1")
-    weight[:] = 0.
+        raise ValueError("out_features and in_features must both be even or 1")
+    
+    # weight[:] = 0.
 
     if (in_features == 1) and (out_features == 1):
         weight = torch.abs(torch.randn(1))
