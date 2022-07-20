@@ -103,7 +103,7 @@ class Recurrent(nn.Module):
         if self.first_rec_layer:
 
             self.input = input.detach()
-            print('Input shape',self.input.shape)
+            # print('Input shape',self.input.shape)
 
             ## init. output matrix
             if len(self.input.shape)==3:
@@ -114,36 +114,65 @@ class Recurrent(nn.Module):
             output = torch.zeros((batch,self.category_dim,self.rnn_dim))
 
             ## project onto latent dimensional space
-            proj = torch.matmul(self.input, self.weight_ih) + self.bias_ih ## pass input through linear tx
-            print('Projected shape',proj.shape)
+            proj_og = torch.matmul(self.input, self.weight_ih) + self.bias_ih ## pass input through linear tx
+            print('Projected shape',proj_og.shape)
 
             ## Loop with recurrence
             for ii in range(self.category_dim):
+
+                if ii == 0:
+
+                    inter = torch.matmul(proj_og, self.weight_hh) + self.bias_hh ## recurrence
+                    print('Inter shape', inter.shape)
+                    print('Inter done')
+
+                    if self.last_layer: #and (ii == self.category_dim-1)
+                        output[:,ii] = (torch.sigmoid(inter)) ## Sigmoid instead of tRelu non-linearity at the output step
+                        print('Sigmoid works')
+
+                    else:
+                        ## threshold inits
+                        to_thresh = (inter.detach() * self.t[None]).sum(dim=1)
+                        mask = (to_thresh >= 0).float()*1.
+                        self.mask = mask
+
+                        print('Mask shape', mask.shape)
+                        print('Op shape', output[ii].shape)
+                        
+                        output[:,ii] = inter * torch.ravel(mask)
+                        print('Timestep op calculated',ii)
+                        proj = output[:,ii]
+                        print('=============================')
+
+                else: ## timestep > 0
                 
-                inter = torch.matmul(proj, self.weight_hh) + self.bias_hh ## recurrence
-                print('Inter shape', inter.shape)
-                print('Inter done')
+                    inter = torch.matmul(proj, self.weight_hh) + self.bias_hh ## recurrence
+                    print('Inter shape', inter.shape)
+                    print('Inter done')
 
-                if self.last_layer: #and (ii == self.category_dim-1)
-                    output[:,ii] = (torch.sigmoid(inter)) ## Sigmoid instead of tRelu non-linearity at the output step
-                    print('Sigmoid works')
+                    if self.last_layer: #and (ii == self.category_dim-1)
+                        output[:,ii] = (torch.sigmoid(inter + proj_og)) ## Sigmoid instead of tRelu non-linearity at the output step
+                        print('Sigmoid works')
 
-                else:
-                    ## threshold inits
-                    to_thresh = (inter.detach() * self.t[None]).sum(dim=1)
-                    mask = (to_thresh >= 0).float()*1.
-                    self.mask = mask
+                    else:
+                        ## threshold inits
+                        to_thresh = (inter.detach() * self.t[None]).sum(dim=1)
+                        mask = (to_thresh >= 0).float()*1.
+                        self.mask = mask
 
-                    print('Mask shape', mask.shape)
-                    print('Op shape', output[ii].shape)
-                    
-                    output[:,ii] = inter * torch.ravel(mask)
-                    print('Timestep op calculated',ii)
-                    proj = output[:,ii]
-                    print('=============================')
+                        print('Mask shape', mask.shape)
+                        print('Op shape', output[ii].shape)
+                        
+                        output[:,ii] = (inter + proj_og) * torch.ravel(mask)
+                        print('Timestep op calculated',ii)
+                        proj = output[:,ii]
+                        print('=============================')
+            
             print('Out of for loop')
+            print('Layer 1 done')
+            print('========================================')
 
-        else:
+        else: ## not first_rec_layer
 
             self.input = input.detach()
             print('Input shape',self.input.shape)
@@ -154,34 +183,79 @@ class Recurrent(nn.Module):
             output = torch.zeros((batch,self.category_dim,self.rnn_dim))
 
             ## project onto latent dimensional space
-            proj = torch.matmul(self.input, self.weight_ih) + self.bias_ih ## pass input through linear tx
-            print('Projected shape',proj.shape)
+            proj_all = torch.matmul(self.input, self.weight_ih) + self.bias_ih ## pass input through linear tx
+            print('Projected shape',proj_all.shape)
 
             ## Loop with recurrence
             for ii in range(self.category_dim):
-                
-                inter = torch.matmul(proj[:,ii], self.weight_hh) + self.bias_hh ## recurrence
-                print('Inter shape', inter.shape)
-                print('Inter done')
 
-                if self.last_layer: #and (ii == self.category_dim-1)
-                    output[:,ii] = (torch.sigmoid(inter)) ## Sigmoid instead of tRelu non-linearity at the output step
-                    print('Sigmoid works')
+                if ii == 0:
 
-                else:
-                    ## threshold inits
-                    to_thresh = (inter.detach() * self.t[None]).sum(dim=1)
-                    mask = (to_thresh >= 0).float()*1.
-                    self.mask = mask
+                    # print('Single proj shape', proj[ii].shape)
+                    inter = torch.matmul(proj_all[:,ii], self.weight_hh) + self.bias_hh ## recurrence
+                    print('Inter shape', inter.shape)
+                    print('Inter done')
 
-                    print('Mask shape', mask.shape)
-                    print('Op shape', output[ii].shape)
+                    if self.last_layer: #and (ii == self.category_dim-1)
+                        output[:,ii] = (torch.sigmoid(inter)) ## Sigmoid instead of tRelu non-linearity at the output step
+                        print('Sigmoid works')
+
+                        print('Timestep op calculated',ii)
+                        proj = output[:,ii]
+                        print('==================================')
+
+                    else:
+
+                        # print('Single proj shape', proj[ii].shape)
+                        inter = torch.matmul(proj_all[:,ii], self.weight_hh) + self.bias_hh ## recurrence
+                        print('Inter shape', inter.shape)
+                        print('Inter done')
+
+                        ## threshold inits
+                        to_thresh = (inter.detach() * self.t[None]).sum(dim=1)
+                        mask = (to_thresh >= 0).float()*1.
+                        self.mask = mask
+
+                        print('Mask shape', mask.shape)
+                        print('Op shape', output[ii].shape)
+
+                        output[:,ii] = inter * torch.ravel(mask)
+                        print('Timestep op calculated',ii)
+                        proj = output[:,ii]
+                        print('==================================')
                     
-                    output[:,ii] = inter * torch.ravel(mask)
-                    print('Timestep op calculated',ii)
-                    proj = output[:,ii]
-                    print('=============================')
+                else: ## timestep > 0
+
+                    # print('Single proj shape', proj[ii].shape)
+                    inter = torch.matmul(proj, self.weight_hh) + self.bias_hh ## recurrence
+                    print('Inter shape', inter.shape)
+                    print('Inter done')
+
+                    if self.last_layer: #and (ii == self.category_dim-1)
+                        output[:,ii] = (torch.sigmoid(inter + proj_all[:,ii])) ## Sigmoid instead of tRelu non-linearity at the output step
+                        print('Sigmoid works')
+
+                        print('Timestep op calculated',ii)
+                        proj = output[:,ii]
+                        print('==================================')
+
+                    else:
+                        ## threshold inits
+                        to_thresh = (inter.detach() * self.t[None]).sum(dim=1)
+                        mask = (to_thresh >= 0).float()*1.
+                        self.mask = mask
+
+                        print('Mask shape', mask.shape)
+                        print('Op shape', output[:,ii].shape)
+
+                        output[:,ii] = (inter + proj_all[:,ii])* torch.ravel(mask)
+                        print('Timestep op calculated',ii)
+                        proj = output[:,ii]
+                        print('==================================')
+            
             print('Out of for loop')
+            print('Layer done')
+            print('==========================================')
             
         return output
 
