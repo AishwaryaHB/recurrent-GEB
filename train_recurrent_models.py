@@ -29,7 +29,8 @@ def eval_accuracy(model, loader, flatten, vectorized, device):
         if vectorized:
             output = output[..., 0]
         
-        loss = loss_fn(output, labels.to(device)).item()
+        labels_hot = F.one_hot(labels)
+        loss = loss_fn(output, labels_hot.to(device)).item()
         loss_sum += loss
         num_correct += (output.argmax(dim=1).cpu() == labels).int().sum().item()
         num_examples += len(data)
@@ -90,20 +91,26 @@ def train_model(snapshot_dir, model, train_loader, test_loader, eval_iter, lr, n
     flatten, vectorized, learning_rule, device):
     model = model.to(device)
     opt = optim.Adam(model.parameters(), lr=lr)
+
     snapshot_epoch, just_restarted, done_training = restart_from_snapshot(snapshot_dir, model, opt)
+    
     if done_training or snapshot_epoch >= num_epochs:
         print("Loaded model already done training")
         return
+
     for epoch in range(snapshot_epoch, num_epochs):
+        
         if epoch % eval_iter == 0 and not just_restarted:
             train_accuracy, train_loss = eval_accuracy(model, train_loader, flatten, vectorized, device)
             test_accuracy, test_loss = eval_accuracy(model, test_loader, flatten, vectorized, device)
             save_snapshot(snapshot_dir, model, opt, epoch, train_loss, train_accuracy, test_loss, test_accuracy,
                 flatten, vectorized, learning_rule)
+            
             if train_accuracy == 1.0:
                 print("Perfect train accuracy achieved, ending training at epoch {}".format(epoch))
                 break
         just_restarted = False
+        
         train_epoch(model, opt, train_loader, flatten, vectorized, learning_rule, device)
 
 def train_epoch(model, opt, train_loader, flatten, vectorized, learning_rule, device):
@@ -125,11 +132,17 @@ def train_epoch(model, opt, train_loader, flatten, vectorized, learning_rule, de
             with torch.no_grad(): #makes no difference...but this proves to ourselves that there's no gradient here!
                 output = model(input.to(device))[..., 0]
             vnn.set_model_grads(model, output, labels, learning_rule=learning_rule, reduction="mean")
+
+            labels_hot = F.one_hot(labels)
             loss = loss_fn(output, labels.to(device))
+        
         else:
             #unvectorized BP or DF
             output = model(input.to(device), learning_rule=learning_rule)
-            loss = loss_fn(output, labels.to(device))
+            
+            labels_hot = F.one_hot(labels)
+            loss = loss_fn(output, labels_hot.to(device))
+            
             loss.backward()
         
         ## update optimizer

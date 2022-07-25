@@ -77,15 +77,20 @@ class Recurrent(nn.Module):
         self.mono = mono
         self.first_rec_layer = first_rec_layer
 
-        self.weight_hh = nn.Parameter(torch.zeros(rnn_dim, rnn_dim), requires_grad=False)
-        self.bias_hh = nn.Parameter(torch.zeros(rnn_dim), requires_grad=False)
+        self.weight_hh = nn.Parameter(torch.zeros(rnn_dim, rnn_dim),requires_grad=False)
+        self.bias_hh = nn.Parameter(torch.zeros(rnn_dim),requires_grad=False)
         
         self.weight_ih = nn.Parameter(torch.zeros(input_size,rnn_dim),requires_grad=False)
         self.bias_ih = nn.Parameter(torch.zeros(rnn_dim),requires_grad=False)
 
-        init_linear(self.weight_ih, first_layer=first_layer, mono=mono)
-        if first_layer:
-            self.weight_ih *= np.sqrt(category_dim)
+        if first_rec_layer:
+            init_linear(self.weight_ih, first_layer=first_layer, mono=False) ## Don't need mono when initialising input matrix of first layer
+            if first_layer:
+                self.weight_ih *= np.sqrt(category_dim)
+        else:
+            init_linear(self.weight_ih, first_layer=first_layer, mono=mono)
+            if first_layer:
+                self.weight_ih *= np.sqrt(category_dim)
 
         init_linear(self.weight_hh, first_layer=first_layer, mono=mono)
         if first_layer:
@@ -93,17 +98,17 @@ class Recurrent(nn.Module):
 
         ##tRelu init
         if rnn_dim>1:
-            self.t = torch.zeros(1,rnn_dim)
-            self.t_half = torch.randint(0, 2, (1, rnn_dim//2)).float()*2 - 1
-            self.t[:,::2] = self.t_half
-            self.t[:,1::2] = -self.t_half
+            t = torch.zeros(1,rnn_dim)
+            t_half = torch.randint(0, 2, (1, rnn_dim//2)).float()*2 - 1
+            t[:,::2] = t_half
+            t[:,1::2] = -t_half
+            self.t = nn.Parameter(t, requires_grad=False)
 
     def forward(self, input):
 
         if self.first_rec_layer:
 
             self.input = input.detach()
-            # print('Input shape',self.input.shape)
 
             ## init. output matrix
             if len(self.input.shape)==3:
@@ -115,7 +120,6 @@ class Recurrent(nn.Module):
 
             ## project onto latent dimensional space
             proj_og = torch.matmul(self.input, self.weight_ih) + self.bias_ih ## pass input through linear tx
-            print('Projected shape',proj_og.shape)
 
             ## Loop with recurrence
             for ii in range(self.category_dim):
@@ -123,59 +127,38 @@ class Recurrent(nn.Module):
                 if ii == 0:
 
                     inter = torch.matmul(proj_og, self.weight_hh) + self.bias_hh ## recurrence
-                    print('Inter shape', inter.shape)
-                    print('Inter done')
 
                     if self.last_layer: #and (ii == self.category_dim-1)
                         output[:,ii] = (torch.sigmoid(inter)) ## Sigmoid instead of tRelu non-linearity at the output step
-                        print('Sigmoid works')
 
                     else:
                         ## threshold inits
                         to_thresh = (inter.detach() * self.t[None]).sum(dim=1)
                         mask = (to_thresh >= 0).float()*1.
                         self.mask = mask
-
-                        print('Mask shape', mask.shape)
-                        print('Op shape', output[ii].shape)
                         
                         output[:,ii] = inter * torch.ravel(mask)
-                        print('Timestep op calculated',ii)
                         proj = output[:,ii]
-                        print('=============================')
 
                 else: ## timestep > 0
                 
                     inter = torch.matmul(proj, self.weight_hh) + self.bias_hh ## recurrence
-                    print('Inter shape', inter.shape)
-                    print('Inter done')
 
                     if self.last_layer: #and (ii == self.category_dim-1)
                         output[:,ii] = (torch.sigmoid(inter + proj_og)) ## Sigmoid instead of tRelu non-linearity at the output step
-                        print('Sigmoid works')
 
                     else:
                         ## threshold inits
                         to_thresh = (inter.detach() * self.t[None]).sum(dim=1)
                         mask = (to_thresh >= 0).float()*1.
                         self.mask = mask
-
-                        print('Mask shape', mask.shape)
-                        print('Op shape', output[ii].shape)
                         
                         output[:,ii] = (inter + proj_og) * torch.ravel(mask)
-                        print('Timestep op calculated',ii)
                         proj = output[:,ii]
-                        print('=============================')
-            
-            print('Out of for loop')
-            print('Layer 1 done')
-            print('========================================')
 
         else: ## not first_rec_layer
 
             self.input = input.detach()
-            print('Input shape',self.input.shape)
 
             ## init. output matrix
             batch, nRolls, dim1 = self.input.shape
@@ -184,60 +167,37 @@ class Recurrent(nn.Module):
 
             ## project onto latent dimensional space
             proj_all = torch.matmul(self.input, self.weight_ih) + self.bias_ih ## pass input through linear tx
-            print('Projected shape',proj_all.shape)
 
             ## Loop with recurrence
             for ii in range(self.category_dim):
 
                 if ii == 0:
 
-                    # print('Single proj shape', proj[ii].shape)
                     inter = torch.matmul(proj_all[:,ii], self.weight_hh) + self.bias_hh ## recurrence
-                    print('Inter shape', inter.shape)
-                    print('Inter done')
 
                     if self.last_layer: #and (ii == self.category_dim-1)
                         output[:,ii] = (torch.sigmoid(inter)) ## Sigmoid instead of tRelu non-linearity at the output step
-                        print('Sigmoid works')
-
-                        print('Timestep op calculated',ii)
                         proj = output[:,ii]
-                        print('==================================')
 
                     else:
 
-                        # print('Single proj shape', proj[ii].shape)
                         inter = torch.matmul(proj_all[:,ii], self.weight_hh) + self.bias_hh ## recurrence
-                        print('Inter shape', inter.shape)
-                        print('Inter done')
 
                         ## threshold inits
                         to_thresh = (inter.detach() * self.t[None]).sum(dim=1)
                         mask = (to_thresh >= 0).float()*1.
                         self.mask = mask
 
-                        print('Mask shape', mask.shape)
-                        print('Op shape', output[ii].shape)
-
                         output[:,ii] = inter * torch.ravel(mask)
-                        print('Timestep op calculated',ii)
                         proj = output[:,ii]
-                        print('==================================')
                     
                 else: ## timestep > 0
 
-                    # print('Single proj shape', proj[ii].shape)
                     inter = torch.matmul(proj, self.weight_hh) + self.bias_hh ## recurrence
-                    print('Inter shape', inter.shape)
-                    print('Inter done')
 
                     if self.last_layer: #and (ii == self.category_dim-1)
                         output[:,ii] = (torch.sigmoid(inter + proj_all[:,ii])) ## Sigmoid instead of tRelu non-linearity at the output step
-                        print('Sigmoid works')
-
-                        print('Timestep op calculated',ii)
                         proj = output[:,ii]
-                        print('==================================')
 
                     else:
                         ## threshold inits
@@ -245,17 +205,8 @@ class Recurrent(nn.Module):
                         mask = (to_thresh >= 0).float()*1.
                         self.mask = mask
 
-                        print('Mask shape', mask.shape)
-                        print('Op shape', output[:,ii].shape)
-
                         output[:,ii] = (inter + proj_all[:,ii])* torch.ravel(mask)
-                        print('Timestep op calculated',ii)
                         proj = output[:,ii]
-                        print('==================================')
-            
-            print('Out of for loop')
-            print('Layer done')
-            print('==========================================')
             
         return output
 
@@ -266,17 +217,28 @@ class Recurrent(nn.Module):
             return grad_input
 
     def set_grad(self, grad_output, output_error):
-        # n = input feature dim, m = output feature dim
-        dot_prods = torch.einsum("bkn,bk->bn", self.input, output_error)
+        # n = input feature dim, m = output feature dim, k = number of classes
+
+        ## calculate dot product between error and 
+        dot_prods = torch.einsum("bkn,bk->bn", self.input, output_error) ## Need mods
+        print('Shape of dot prod',dot_prods.shape)
         
-        grad_weight = torch.einsum("bm,bn->mn", grad_output, dot_prods)
-        grad_bias = torch.einsum("bk,bm->km", output_error, grad_output)
+        grad_weight = torch.einsum("bm,bn->mn", grad_output, dot_prods) ## Need mods
+        print('Shape of grad_weight',grad_weight.shape)
         
+        grad_bias = torch.einsum("bk,bm->km", output_error, grad_output) ## Need mods
+        print('Shape of grad_bias',grad_bias.shape)
+        
+
         set_or_add_grad(self.weight_hh, grad_weight)
+        print('Updating weight_hh works')
         set_or_add_grad(self.bias_hh, grad_bias)
+        print('Updating bias_hh works')
 
         set_or_add_grad(self.weight_ih, grad_weight)
+        print('Updating weight_ih works')
         set_or_add_grad(self.bias_ih, grad_bias)
+        print('Updating bias_ih works')
 
     def post_step_callback(self):
         self.weight_hh.clamp_(min=0)
@@ -519,8 +481,14 @@ Utilities for filling .grad attributes with the bio-plausible learning updates
 def set_or_add_grad(param, grad_val):
     with torch.no_grad():
         if param.grad is None:
+            print('Shape of grad_val',grad_val.shape)
+            print('Shape of param',param.shape)
+            print('grad.param is none')
             param.grad = grad_val.detach() #probably don't need detach
+            print('First grad assignment works')
         else:
+            print('Shape of grad_val',grad_val.shape)
+            print('Shape of param.grad',param.grad.shape)
             param.grad += grad_val.detach() #again, probably don't need detach
 
 def set_model_grads(model, output, labels, learning_rule="bp", reduction="mean", return_g=False):
@@ -532,6 +500,7 @@ def set_model_grads(model, output, labels, learning_rule="bp", reduction="mean",
     g = torch.ones(batch_size, 1, device=output.device)
     if reduction == "mean":
         g /= batch_size
+    
     if learning_rule == "bp":
         #Backprop backwards pass
         g_vals = []
@@ -541,16 +510,18 @@ def set_model_grads(model, output, labels, learning_rule="bp", reduction="mean",
             g = layer.custom_backward(g, output_error)
             if return_g: g_vals.append(g)
         return g_vals
+    
     elif learning_rule == "df":
         #DF backwards pass
         for i in list(range(len(model)))[::-1]:
             layer = model[i]
-            if i == len(model) - 1 or type(layer).__name__ in ('Linear', 'Conv2d', 'Local2d'):
+            if i == len(model) - 1 or type(layer).__name__ in ('Linear', 'Conv2d', 'Local2d', 'Recurrent'):
                 #output layer or weight layer
                 layer.custom_backward(g, output_error, need_grad_input=False)
             elif type(layer).__name__ in ('tReLU', 'ctReLU'):
                 #nonlinearity -- feed in all 1s
                 g_const = torch.ones(layer.mask.shape, device=output.device)
+                
                 if reduction == "mean":
                     g_const /= batch_size
                 g = layer.custom_backward(g_const, output_error)
