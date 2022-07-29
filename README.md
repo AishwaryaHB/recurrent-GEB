@@ -1,2 +1,2 @@
-# recurrent-GEB
-Recurrent version of GEVB
+# Temporal-GEB
+Temporal version of GEVB
