@@ -56,10 +56,12 @@ class RNNModule:
     
     def reset_parameters(self):
         """Initialize parameters.
-
-        The parameters will be initialized from the distribution U(-s, s).
+		
+		Wih is initialised from the distribution U(-s,s).
+        The parameters Whh, Woh are initialized from the distribution U(0, s).
+        s is set as min(1/sqrt(dim)) amongst all dim
         """
-        s = 0.05  # larger value may make the gradients explode/vanish
+        s = 0.04  # larger value may make the gradients explode, significanlty smaller values may make the gradeints vanish
         torch.nn.init.uniform_(self.Wih, -s, s)
         torch.nn.init.uniform_(self.Whh, 0, s)
         torch.nn.init.uniform_(self.Woh, 0, s)
@@ -103,20 +105,20 @@ class RNNModule:
         n_classes = y_grad.shape[0]
         
         # Get internal vectors r, h, and s from forward computation
-        rint, r, h, s, _ = self._get_internals(x, hp, kk)
+        rin, r, h, s, _ = self._get_internals(x, hp, kk)
 
         ## BPTT calculations
-        s_grad = y_grad * torch.sigmoid(s) * (1-torch.sigmoid(s)) ## note manual differentiation!!
+        s_grad = y_grad*torch.sigmoid(s)*(1-torch.sigmoid(s)) ## note manual differentiation!!
         h_grad = self.Woh.t().matmul(s_grad) + self.Whh.t().matmul(rn_grad)
-        r_grad = h_grad * ((self.tvec_hh[kk]*r)>0)*1 ## note manual differentiation!!
-        rint_grad = r_grad*((self.tvec_ih[kk]*rint)>0)*1 ## note manual differentiation
+        r_grad = h_grad*((self.tvec_hh[kk]*r)>0)*1 ## note manual differentiation!!
+        rin_grad = r_grad*((self.tvec_ih[kk]*rin)>0)*1 ## note manual differentiation!!
         
         # Parameter gradients are accumulated
-        self.Wih_grad += rint_grad.view(-1, 1).matmul(x.view(1, -1))
+        self.Wih_grad += rin_grad.view(-1, 1).matmul(x.view(1, -1))
         self.Whh_grad += r_grad.view(-1, 1).matmul(hp.view(1, -1))
         self.Woh_grad += s_grad.view(-1, 1).matmul(h.view(1, -1))
 
-        self.Wih_grad_all[kk] = r_grad.view(-1, 1).matmul(x.view(1, -1))
+        self.Wih_grad_all[kk] = rin_grad.view(-1, 1).matmul(x.view(1, -1)) ## missed in before
         self.Whh_grad_all[kk] = r_grad.view(-1, 1).matmul(hp.view(1, -1))
         self.Woh_grad_all[kk] = s_grad.view(-1, 1).matmul(h.view(1, -1))
         
@@ -126,17 +128,17 @@ class RNNModule:
         ## Pre-synaptic activation
         ## Global error vector
 
-        x_y_grad = y_grad*x
-        rint_post = ((self.tvec_ih[kk]*rint)>0)*1.
+        x_y_grad = y_grad*x #y_grad*x
+        rin_post = ((self.tvec_ih[kk]*rin)>0)*1.
         
-        hp_y_grad = y_grad*hp
+        hp_y_grad = y_grad*hp #y_grad*hp
         r_post = ((self.tvec_hh[kk]*r)>0)*1.
         
-        self.Wih_grad_geb += torch.outer(rint_post,x_y_grad) #done!
+        self.Wih_grad_geb += torch.outer(rin_post,x_y_grad) #done!
         self.Whh_grad_geb += torch.outer(r_post,hp_y_grad) #done! 
         self.Woh_grad_geb += s_grad.view(-1,1).matmul(h.view(1, -1)) #done!
         
-        self.Wih_grad_geb_all[kk] = torch.outer(rint_post,x_y_grad)
+        self.Wih_grad_geb_all[kk] = torch.outer(rin_post,x_y_grad)
         self.Whh_grad_geb_all[kk] = torch.outer(r_post,hp_y_grad)
         self.Woh_grad_geb_all[kk] = s_grad.view(-1,1).matmul(h.view(1, -1))
 
@@ -144,13 +146,13 @@ class RNNModule:
     
     def _get_internals(self, x, hp, kk):
         # Actual forward computations
-        rint = self.Wih.matmul(x)
-        r = ((self.tvec_ih[kk]*rint)>0)*rint + self.Whh.matmul(hp)
+        rin = self.Wih.matmul(x)
+        r = ((self.tvec_ih[kk]*rin)>0)*rin + self.Whh.matmul(hp)
         h = ((self.tvec_hh[kk]*r)>0)*r
         s = self.Woh.matmul(h)
         y = torch.sigmoid(s)
         
-        return rint, r, h, s, y
+        return rin, r, h, s, y
 
 class RNN:
     def __init__(self, cell):
